@@ -117,6 +117,8 @@ func main() {
             case <- ticker_next_frame.C:     
                 global_frame_idx += 1
 
+                // load image from file?
+                // https://medium.com/mop-developers/image-processing-in-go-5ba9a9043bc2
                 frame := GrabbedFrameDescriptor {
                     frame_idx: global_frame_idx,
                 }
