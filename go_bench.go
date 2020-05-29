@@ -13,37 +13,59 @@ import (
     // "log"
 
     // Mt
-    "github.com/panjf2000/ants"
+    // "github.com/panjf2000/ants"
 
     // Sys
     // "golang.org/x/sys/unix"
     "runtime"
-    "strconv"
-    "bufio"
-    "os"
+    // "strconv"
+    // "bufio"
+    // "os"
+    "container/list"
+    "sync"
 
     // 
     "github.com/goinggo/workpool"
 )
 
+type GrabbedFrameDescriptor struct {
+    frame_idx int
+    contents []int
 
-type MyWork struct {
-    Name string
-    BirthYear int
-    WP *workpool.WorkPool
+    // 
+    // start := time.Now()
+    // start := time.Now()
+    // ... operation that takes 20 milliseconds ...
+    // t := time.Now()
+    // elapsed := t.Sub(start)
 }
 
+type PerfCouter struct {
+
+}
+
+type MyWork struct {
+    frame GrabbedFrameDescriptor
+    WP *workpool.WorkPool
+    c chan int
+}
+
+
+
 func (mw *MyWork) DoWork(workRoutine int) {
-    fmt.Printf("%s : %d\n", mw.Name, mw.BirthYear)
-    fmt.Printf("Q:%d R:%d\n", mw.WP.QueuedWork(), mw.WP.ActiveRoutines())
+    // fmt.Printf("%s : %d\n", mw.Name, mw.BirthYear)
+    // fmt.Printf("Q:%d R:%d\n", mw.WP.QueuedWork(), mw.WP.ActiveRoutines())
 
     // Simulate some delay
-    time.Sleep(500 * time.Millisecond)
+    // time.Sleep(500 * time.Millisecond)
+    mw.c <- mw.frame.frame_idx
 }
 
 
 func main() {
     // Требования для автопилота по камере "Теслы".
+    // Фиксированная latence и максимальная fps при заданных ресурсах
+
     // 1. High frame-rate
     // 2. Real-Time/Latency - нужна актуальная информация - входная очередь и скипы фреймов 
     // Время между впавшим в обработу и выпавшим минимальное - lantancey
@@ -66,35 +88,61 @@ func main() {
     // FIXME: Хз как эти опции применить
     // Worker
     runtime.GOMAXPROCS(runtime.NumCPU())
-    pool, _ := ants.NewPool(1)//, ants.WithMaxBlockingTasks(5))
-    defer pool.Release()
 
     // workPool := workpool.New(runtime.NumCPU(), 800)
     workPool := workpool.New(runtime.NumCPU(), 5)
     defer workPool.Shutdown("routine")
 
+    // Main queue - thread-safe should be
+    // FIXME: Нужно будет искать по очереди нужный фрейм - потокобезопасно
+    // https://yourbasic.org/golang/implement-fifo-queue/
+
+    // https://stackoverflow.com/questions/2818852/is-there-a-queue-implementation
+    lock := sync.Mutex{}
+
+    queue := list.New()
+    // https://stackoverflow.com/questions/2818852/is-there-a-queue-implementation
+
+    allowed_latency_frames := 5
+    
     // Load
-    ticker_next_frame := time.NewTicker(40 * time.Millisecond)
+    // ticker_next_frame := time.NewTicker(40 * time.Millisecond)
+    ticker_next_frame := time.NewTicker(500 * time.Millisecond)
     quit_next_frame := make(chan struct{})
+    c := make(chan int)
     go func() {
+        global_frame_idx := 0
         for {
            select {
-            case <- ticker_next_frame.C:
-                // FIXME: ...
-                // do stuff
-                // Real work multiplexing
-                fmt.Println("Next frame")
+            case <- ticker_next_frame.C:     
+                global_frame_idx += 1
 
-                i := 0
+                frame := GrabbedFrameDescriptor {
+                    frame_idx: global_frame_idx,
+                }
+
                 work := MyWork {
-                    Name: "A" + strconv.Itoa(i),
-                    BirthYear: i,
+                    frame: frame,
                     WP: workPool,
+                    c: c,
+                }
+
+                // FIXME: push to queue
+                // Важно упорядочить
+                {
+                    lock.Lock()
+                    queue.PushBack(frame)
+                    for queue.Len() > allowed_latency_frames {
+                        e := queue.Front() // First element
+                        // FIXME: sent to rnn
+
+                        queue.Remove(e) // Dequeue
+                    }
+                    lock.Unlock()
                 }
 
                 if err := workPool.PostWork("routine", &work); err != nil {
-                    fmt.Printf("ERROR: %s\n", err)
-                    time.Sleep(100 * time.Millisecond)
+                    fmt.Printf("skip: %s\n", err)
                 }
 
             case <- quit_next_frame:
@@ -112,7 +160,7 @@ func main() {
            select {
             case <- ticker_perf.C:
                 // do stuff
-                fmt.Println("PerfCouter: ...")
+                fmt.Printf("PerfCouter:...\n")
             case <- quit_perf:
                 ticker_perf.Stop()
                 return
@@ -120,43 +168,28 @@ func main() {
         }
      }()
 
+     // Result acceptor - приписывает результаты к фреймам
+     go func() {
+        for {
+            frame_idx := <-c           
+            {
+                lock.Lock()
+                // FIXME: успели-не успели
+                // FIXME: нужно искть под локом    
+                fmt.Printf("Done frame_idx:%d\n", frame_idx)
+
+                // Put to RNN queue
+                lock.Unlock()
+            }
+        }
+     }()
+
+    // Fake Rnn
+    go func() {
+
+    }
 
     time.Sleep(50 * time.Second)
 }
 
 
-func main_new() {
-    runtime.GOMAXPROCS(runtime.NumCPU())
-
-    workPool := workpool.New(runtime.NumCPU(), 800)
-
-    shutdown := false // Race Condition, Sorry
-
-    go func() {
-        for i := 0; i < 1000; i++ {
-            work := MyWork {
-                Name: "A" + strconv.Itoa(i),
-                BirthYear: i,
-                WP: workPool,
-            }
-
-            if err := workPool.PostWork("routine", &work); err != nil {
-                fmt.Printf("ERROR: %s\n", err)
-                time.Sleep(100 * time.Millisecond)
-            }
-
-            if shutdown == true {
-                return
-            }
-        }
-    }()
-
-    fmt.Println("Hit any key to exit")
-    reader := bufio.NewReader(os.Stdin)
-    reader.ReadString('\n')
-
-    shutdown = true
-
-    fmt.Println("Shutting Down")
-    workPool.Shutdown("routine")
-}
