@@ -9,7 +9,7 @@ import (
     "fmt"
     "time"
     "runtime"
-    "container/list"
+    // "container/list"
     "sync"
     "github.com/goinggo/workpool"
 )
@@ -37,7 +37,36 @@ func (mw *MyWork) DoWork(workRoutine int) {
     mw.c <- mw.frame
 }
 
-func main() {
+type CyclicalBuffer struct {
+    q []GrabbedFrameDescriptor
+    rd_wr_ptr int
+    size int
+}
+
+func (buffer *CyclicalBuffer) PushBack(frame GrabbedFrameDescriptor) GrabbedFrameDescriptor {
+    oldest_frame := buffer.q[buffer.rd_wr_ptr]
+    buffer.q[buffer.rd_wr_ptr] = frame
+    buffer.rd_wr_ptr = (buffer.rd_wr_ptr+1) % buffer.size
+    return oldest_frame
+}
+
+func (buffer *CyclicalBuffer) SearchByFrameIdx(frame_idx int) int {
+    // fmt.Printf("VQ: ")
+    // for i := 0; i < buffer.size; i++ {
+    //     fmt.Printf(" %d", buffer.q[i].frame_idx)
+    // }
+    // fmt.Printf("\n")
+
+    for i := 0; i < buffer.size; i++ {
+        if (buffer.q[i].frame_idx == frame_idx) {
+            return i
+        }
+    }
+    return -1
+}
+
+
+func main() {   
     // Name
     // "Реальтаймная/Онлайн система обработки данных с модели камеры"
     // Компоненты - трейдпулы, очереди задачи(потокобезопансые)
@@ -59,7 +88,24 @@ func main() {
     // Params
     var threads_count int32 = 5
     allowed_latency_frames := 7
-    var ds_ms time.Duration = 500  // 40
+    var ds_ms time.Duration = 500  // 40  
+
+    // TEST
+    // k:=10
+    // j := 1
+    // for k > 0 {
+    //     frame := GrabbedFrameDescriptor {
+    //         frame_idx: j,
+    //         capturingtime: time.Now(),
+    //         recog_result: 0,
+    //     }
+    //     q.PushBack(frame)
+    //     queue_position := q.SearchByFrameIdx(frame.frame_idx)
+    //     fmt.Printf(" Q:%d %d\n", frame.frame_idx, q.q[queue_position].frame_idx)
+    //     k -= 1
+    //     j += 1
+    // }
+    // return
 
     // Worker
     // https://dev.to/panjf2000/releasing-a-high-performance-goroutine-pool-in-go-n57
@@ -74,7 +120,13 @@ func main() {
     // https://stackoverflow.com/questions/2818852/is-there-a-queue-implementation  
     // https://golang.org/pkg/container/list/
     lock := sync.Mutex{}
-    queue := list.New()  // лучше иметь одну на все обработчики
+    //queue := list.New()  // лучше иметь одну на все обработчики
+    // New queue
+    queue := CyclicalBuffer{
+        q : make([]GrabbedFrameDescriptor, allowed_latency_frames),
+        rd_wr_ptr : 0,        
+        size : allowed_latency_frames,
+    }
 
     // Performans
     // https://blog.golang.org/maps
@@ -116,16 +168,23 @@ func main() {
 
                 // Attention!!! Видимо везде копируем, хз как в Go сделать ссылки
                 // Пушаем в основную очередь
+                // {
+                //     lock.Lock()
+                //     queue.PushBack(frame)
+                //     for queue.Len() > allowed_latency_frames {
+                //         e := queue.Front() // First element
+                //         // Sent to RNN
+                //         rnn_ch <- e.Value.(GrabbedFrameDescriptor)  // особенность работы списка
+
+                //         queue.Remove(e) // Dequeue
+                //     }
+                //     lock.Unlock()
+                // }
+
                 {
                     lock.Lock()
-                    queue.PushBack(frame)
-                    for queue.Len() > allowed_latency_frames {
-                        e := queue.Front() // First element
-                        // Sent to RNN
-                        rnn_ch <- e.Value.(GrabbedFrameDescriptor)  // особенность работы списка
-
-                        queue.Remove(e) // Dequeue
-                    }
+                    e := queue.PushBack(frame)
+                    rnn_ch <- e // особенность работы списка
                     lock.Unlock()
                 }
 
@@ -165,17 +224,24 @@ func main() {
             frame := <-work_finish_ch           
         
             lock.Lock() 
+
             fmt.Printf("Done frame_idx:%d\n", frame.frame_idx)
-            for e := queue.Front(); e != nil; e = e.Next() {
-                // do something with e.Value
-                current_frame_idx := e.Value.(GrabbedFrameDescriptor).frame_idx
-                fmt.Printf(" Q:%d\n", current_frame_idx)
-                if (current_frame_idx == frame.frame_idx) {
-                    // https://webapplicationconsultant.com/go-lang/cannot-assign-to-struct-field-in-map/
-                    // Can't assign
-                    // e.Value.(GrabbedFrameDescriptor).recog_result = 1
-                }
+            queue_position := queue.SearchByFrameIdx(frame.frame_idx)
+            if queue_position != -1 {
+                queue.q[queue_position].recog_result = 1
             }
+
+            
+            // for e := queue.Front(); e != nil; e = e.Next() {
+            //     // do something with e.Value
+            //     current_frame_idx := e.Value.(GrabbedFrameDescriptor).frame_idx
+            //     fmt.Printf(" Q:%d\n", current_frame_idx)
+            //     if (current_frame_idx == frame.frame_idx) {
+            //         // https://webapplicationconsultant.com/go-lang/cannot-assign-to-struct-field-in-map/
+            //         // Can't assign
+            //         // e.Value.(GrabbedFrameDescriptor).recog_result = 1
+            //     }
+            // }
 
             // Put to RNN queue
             lock.Unlock()           
