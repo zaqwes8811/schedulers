@@ -16,12 +16,12 @@ std::string executor::current_thread_id()
 
 //==================================================
 
-std::map< int, executor* > executors::id_to_exec;
+std::map< int, executor* > executors::id_to_exec_;
 
 void executors::post_task( int id, base::Closure job )
 {
-	auto r = id_to_exec.find( id );
-	if( r == id_to_exec.end() ){
+	auto r = id_to_exec_.find( id );
+	if( r == id_to_exec_.end() ){
 		return;
 	}
 
@@ -32,7 +32,7 @@ void executors::post_task( int id, base::Closure job )
 
 void executors::add( int id, executor* e )
 {
-	id_to_exec[ id ] = e;
+	id_to_exec_[ id ] = e;
 }
 
 //==================================================

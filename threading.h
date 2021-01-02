@@ -91,15 +91,15 @@ public:
 	static void add( int id, boost::weak_ptr<executor> e )
 	{
 		using namespace boost;
-		lock_guard<recursive_mutex> _(mtx);
-		id_to_exec[ id ] = e;
+		lock_guard<recursive_mutex> _(mtx_);
+		id_to_exec_[ id ] = e;
 	}
 
 	static void terminate_all();
 private:
 	executors();
-	static std::map< int, boost::weak_ptr<executor> > id_to_exec;
-	static boost::recursive_mutex mtx;
+	static std::map< int, boost::weak_ptr<executor> > id_to_exec_;
+	static boost::recursive_mutex mtx_;
 };
 
 //=======================================================
@@ -122,8 +122,8 @@ public:
 	void terminate();
 
 private:
-	boost::asio::io_service io;
-	boost::scoped_ptr<boost::thread> th;
+	boost::asio::io_service io_;
+	boost::scoped_ptr<boost::thread> thread_;
 };
 
 //===================================================

@@ -33,7 +33,7 @@ public:
   	static void add( int id, executor* e );
 private:
   	executors();
-    static std::map< int, executor* > id_to_exec;
+    static std::map< int, executor* > id_to_exec_;
 };
 
 //====================================================

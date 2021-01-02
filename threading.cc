@@ -9,8 +9,8 @@ using namespace boost;
 
 //======================================================
 
-std::map< int, weak_ptr<executor> > executors::id_to_exec;
-boost::recursive_mutex executors::mtx;
+std::map< int, weak_ptr<executor> > executors::id_to_exec_;
+boost::recursive_mutex executors::mtx_;
 
 std::string current_thread_id()
 {
@@ -21,25 +21,25 @@ void executors::terminate_all()
 {
 	using namespace std;
 	using namespace boost;
-	lock_guard<recursive_mutex> _(mtx);
-	for( map<int, weak_ptr<executor> >::iterator it = id_to_exec.begin();
-			it != id_to_exec.end(); ++it ){
+	lock_guard<recursive_mutex> _(mtx_);
+	for( map<int, weak_ptr<executor> >::iterator it = id_to_exec_.begin();
+			it != id_to_exec_.end(); ++it ){
 		shared_ptr<executor> e = it->second.lock();
 		if( e ){
 			e->terminate();
 		}
 	}
 
-	id_to_exec.clear();
+	id_to_exec_.clear();
 }
 
 void executors::post_task( int id, base::Closure job )
 {
 	using namespace boost;
 	using namespace std;
-	lock_guard<recursive_mutex> _(mtx);
-	map< int, weak_ptr<executor> >::iterator p = id_to_exec.find( id );
-	if( p == id_to_exec.end() ){
+	lock_guard<recursive_mutex> _(mtx_);
+	map< int, weak_ptr<executor> >::iterator p = id_to_exec_.find( id );
+	if( p == id_to_exec_.end() ){
 		throw runtime_error(string());
 	}
 
@@ -56,21 +56,21 @@ void executors::post_task( int id, base::Closure job )
 //==========================================================
 asio_executor::asio_executor()
 {
-	th.reset(new boost::thread(boost::bind(asio_executor::real_run, &io)));
+	thread_.reset(new boost::thread(boost::bind(asio_executor::real_run, &io_)));
 }
 asio_executor::~asio_executor()
 {
 	using namespace std;
-	th->join();
+	thread_->join();
 }
 
 void asio_executor::post( base::Closure t )
 {
 	using namespace std;
-	io.post( t );
+	io_.post( t );
 }
 
 void asio_executor::terminate()
 {
-	io.stop();
+	io_.stop();
 }
