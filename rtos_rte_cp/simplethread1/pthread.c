@@ -31,7 +31,7 @@ void *counterThread(void *threadp)
 }
 
 
-int main (int argc, char *argv[])
+int main_0 (int argc, char *argv[])
 {
    int rc;
    int i;
